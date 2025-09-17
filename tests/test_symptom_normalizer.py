@@ -27,11 +27,9 @@ def test_normalization_with_aliases(mock_llm_call):
 
 @patch('core.symptom_normalizer.get_llm_response')
 def test_normalization_with_no_matches(mock_llm_call):
-    """
-    Tests that the function returns an empty list if the LLM extracts phrases not in our alias map.
-    """
-    # Arrange
-    mock_llm_call.return_value = "my elbow is sore, my foot is itchy"
+    # ...
+    # Arrange: Use phrases that are truly not medical symptoms
+    mock_llm_call.return_value = "my car is broken, my phone is dead" # <-- This is definitely not in the KG
     
     # Act
     normalized = normalize_symptoms("irrelevant")

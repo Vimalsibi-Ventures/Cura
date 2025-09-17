@@ -5,10 +5,8 @@ from dotenv import load_dotenv
 project_root = os.path.join(os.path.dirname(__file__), '..')
 dotenv_path = os.path.join(project_root, '.env')
 
-# Explicitly load the .env file from the defined path.
 load_dotenv(dotenv_path=dotenv_path)
 
-# Get the OpenAI API key from the environment
+# Get API keys from the environment
 OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
-
-# You can add other configurations here later
+GOOGLE_PLACES_API_KEY = os.getenv("GOOGLE_PLACES_API_KEY")

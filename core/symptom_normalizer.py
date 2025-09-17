@@ -4,67 +4,80 @@ from typing import List, Set
 from core.llm_wrapper import get_llm_response
 from utils.logger import get_logger
 
-# Initialize logger
 logger = get_logger(__name__)
-
-# --- Build a Symptom Alias Map from the Knowledge Graph ---
 KG_FILE_PATH = os.path.join(os.path.dirname(__file__), '..', 'data', 'kg.json')
-ALIAS_MAP = {}
 
+# We only need the set of all official symptom names to provide to the LLM
+ALL_SYMPTOM_NAMES: Set[str] = set()
 try:
-    with open(KG_FILE_PATH, 'r') as f:
+    with open(KG_FILE_PATH, 'r', encoding='utf-8') as f:
         knowledge_graph = json.load(f)
-        
-        for condition_data in knowledge_graph.get("conditions", []):
-            symptom_lists = condition_data.get("common_symptoms", []) + condition_data.get("specific_symptoms", [])
-            for symptom_obj in symptom_lists:
-                official_name = symptom_obj["name"].lower()
-                # Map the official name to itself
-                ALIAS_MAP[official_name] = official_name
-                # Map all aliases to the official name
-                for alias in symptom_obj.get("aliases", []):
-                    ALIAS_MAP[alias.lower()] = official_name
-
-    logger.info(f"Built symptom alias map with {len(ALIAS_MAP)} entries.")
+        for condition in knowledge_graph.get("conditions", []):
+            symptoms = condition.get("common_symptoms", []) + condition.get("specific_symptoms", [])
+            for symptom_obj in symptoms:
+                ALL_SYMPTOM_NAMES.add(symptom_obj["name"].lower())
+    logger.info(f"Loaded {len(ALL_SYMPTOM_NAMES)} unique official symptom names for CoT normalization.")
 except Exception as e:
-    logger.error(f"Failed to build symptom alias map from knowledge graph: {e}")
+    logger.error(f"Failed to load symptom names for CoT normalization: {e}")
 
 def normalize_symptoms(user_input: str) -> List[str]:
     """
-    Uses an LLM to extract potential symptom phrases and then uses a local
-    alias map with flexible matching to normalize them to official symptom names.
+    Uses a "Chain of Thought" prompt to force the LLM to reliably map
+    conversational language to a known list of official symptoms.
     """
-    system_message = (
-        "You are an expert medical recognition tool. Your task is to identify and extract "
-        "any potential medical symptoms from the user's text. List the phrases that look like symptoms, "
-        "separated by commas."
-    )
-    
-    prompt = f"""
-    From the user input below, extract a comma-separated list of phrases that describe medical symptoms.
-    Do not add any explanation or any other text.
-    User Input: "{user_input}"
-    """
-
-    llm_response = get_llm_response(prompt, system_message=system_message)
-
-    if not llm_response:
-        logger.warning("LLM could not extract any symptom phrases.")
+    if not ALL_SYMPTOM_NAMES:
+        logger.error("Official symptom name list is empty. Cannot normalize.")
         return []
 
-    raw_phrases = [phrase.strip().lower() for phrase in llm_response.split(',')]
+    # Prepare the list of official symptoms for the prompt
+    symptom_list_str = ", ".join(f'"{s}"' for s in sorted(list(ALL_SYMPTOM_NAMES)))
     
-    # --- NEW ROBUST MATCHING LOGIC ---
-    normalized_symptoms: Set[str] = set()
-    # Check each phrase extracted by the LLM
-    for phrase in raw_phrases:
-        # See if any of our known aliases are contained within that phrase
-        for alias, official_name in ALIAS_MAP.items():
-            if alias in phrase:
-                normalized_symptoms.add(official_name)
-                # Once a match is found for a phrase, we can move to the next phrase
-                break 
-    # --- END OF NEW LOGIC ---
+    system_message = "You are an expert at mapping conversational language to official medical symptoms. You must follow the instructions exactly and provide your final answer only in the specified JSON format."
     
-    logger.info(f"LLM extracted: {raw_phrases}. Normalized to: {list(normalized_symptoms)}")
-    return list(normalized_symptoms)
+    # This is the multi-step "Chain of Thought" prompt
+    prompt = f"""
+    Analyze the user's text to find the best matches from a list of official medical symptoms. Follow these steps:
+    1.  **Extract:** Read the USER TEXT and identify all phrases that describe medical symptoms.
+    2.  **Analyze:** Compare each extracted phrase to the LIST OF OFFICIAL SYMPTOMS provided.
+    3.  **Map:** Find the most accurate match from the official list for each phrase.
+    4.  **Output:** Return your final answer as a single JSON object with one key, "normalized_symptoms", which contains a list of the official symptom names you identified.
+
+    ### LIST OF OFFICIAL SYMPTOMS:
+    [{symptom_list_str}]
+    
+    ### USER TEXT:
+    "{user_input}"
+    
+    ### FINAL JSON OUTPUT:
+    """
+    
+    llm_response = get_llm_response(prompt, system_message)
+    
+    if not llm_response:
+        logger.warning("LLM provided no response for CoT normalization.")
+        return []
+
+    try:
+        # Extract the JSON part from the LLM's response
+        json_start = llm_response.find('{')
+        json_end = llm_response.rfind('}') + 1
+        if json_start == -1 or json_end == 0:
+            raise json.JSONDecodeError("No JSON object found in the response.", llm_response, 0)
+        
+        json_str = llm_response[json_start:json_end]
+        data = json.loads(json_str)
+        
+        # Validate the response and return a clean list
+        symptoms = data.get("normalized_symptoms", [])
+        if isinstance(symptoms, list):
+            # Final safety check: ensure all returned symptoms are valid
+            valid_symptoms = [s.lower() for s in symptoms if s.lower() in ALL_SYMPTOM_NAMES]
+            logger.info(f"CoT normalization successful. Found: {valid_symptoms}")
+            return valid_symptoms
+        else:
+            logger.warning("LLM response JSON did not contain a valid list for 'normalized_symptoms'.")
+            return []
+
+    except json.JSONDecodeError:
+        logger.error(f"Failed to decode JSON from LLM for CoT normalization. Response: {llm_response}")
+        return []
