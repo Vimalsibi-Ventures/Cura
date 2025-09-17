@@ -1,0 +1,12 @@
+# Web Framework & Server
+fastapi
+uvicorn[standard]
+
+# LLM Integration
+openai
+
+# Configuration Management
+python-dotenv
+
+# Testing
+pytest
