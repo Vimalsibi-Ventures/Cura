@@ -4,6 +4,8 @@ from typing import Optional
 import sys
 import os
 
+from fastapi.middleware.cors import CORSMiddleware # NEW: Import CORS Middleware
+
 current_dir = os.path.dirname(os.path.abspath(__file__))
 project_root = os.path.dirname(current_dir)
 sys.path.append(project_root)
@@ -21,6 +23,17 @@ app = FastAPI(
     title="Symptom Checker Chatbot (Stable Version)",
     description="An API that uses a reliable KG-First model for symptom analysis.",
     version="6.0.0"
+)
+
+# NEW: CORS Middleware Configuration to allow cross-origin requests
+origins = ["*"] # This allows requests from any origin
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=origins,
+    allow_credentials=True,
+    allow_methods=["*"], # Allows all HTTP methods (POST, GET, etc.)
+    allow_headers=["*"], # Allows all headers
 )
 
 class UserQuery(BaseModel):
