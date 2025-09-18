@@ -20,34 +20,30 @@ else:
         client = None
 
 
-def get_llm_response(prompt: str, system_message: str = "You are a helpful assistant.") -> Optional[str]:
+# CHANGED: Added max_tokens and temperature as optional arguments
+def get_llm_response(
+    prompt: str, 
+    system_message: str = "You are a helpful assistant.", 
+    max_tokens: int = 400,
+    temperature: float = 0.0
+) -> Optional[str]:
     """
-    Sends a prompt to the LLM and returns the response.
-
-    Args:
-        prompt (str): The user's prompt to send to the LLM.
-        system_message (str): The system message to set the LLM's behavior.
-
-    Returns:
-        str | None: The text content of the LLM's response, or None if an error occurred.
+    Sends a prompt to the LLM and returns the response with configurable token limits.
     """
     if not client:
         logger.error("OpenAI client is not initialized. Cannot get LLM response.")
         return None
 
     try:
-        logger.info(f"Sending prompt to LLM: '{prompt[:80]}...'") # Log a snippet
+        logger.info(f"Sending prompt to LLM with max_tokens={max_tokens}: '{prompt[:80]}...'")
         response = client.chat.completions.create(
             model="gpt-4o-mini",
             messages=[
                 {"role": "system", "content": system_message},
                 {"role": "user", "content": prompt}
             ],
-            temperature=0.0,
-            # --- THIS IS THE FIX ---
-            # Increased from 100 to 400 to allow for longer, more detailed responses.
-            max_tokens=400
-            # --- END OF FIX ---
+            temperature=temperature,
+            max_tokens=max_tokens
         )
         
         content = response.choices[0].message.content

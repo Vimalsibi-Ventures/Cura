@@ -4,11 +4,12 @@ from typing import Optional
 import sys
 import os
 
-from fastapi.middleware.cors import CORSMiddleware # NEW: Import CORS Middleware
-
+from fastapi.middleware.cors import CORSMiddleware
+# --- Add project root to the Python path ---
 current_dir = os.path.dirname(os.path.abspath(__file__))
 project_root = os.path.dirname(current_dir)
 sys.path.append(project_root)
+# -----------------------------------------
 
 from core.emergency_checker import is_emergency
 from core.symptom_normalizer import normalize_symptoms
@@ -22,18 +23,18 @@ logger = get_logger(__name__)
 app = FastAPI(
     title="Symptom Checker Chatbot (Stable Version)",
     description="An API that uses a reliable KG-First model for symptom analysis.",
-    version="6.0.0"
+    version="7.0.0"
 )
 
-# NEW: CORS Middleware Configuration to allow cross-origin requests
-origins = ["*"] # This allows requests from any origin
+# CORS Middleware Configuration
+origins = ["*"]
 
 app.add_middleware(
     CORSMiddleware,
     allow_origins=origins,
     allow_credentials=True,
-    allow_methods=["*"], # Allows all HTTP methods (POST, GET, etc.)
-    allow_headers=["*"], # Allows all headers
+    allow_methods=["*"],
+    allow_headers=["*"],
 )
 
 class UserQuery(BaseModel):
@@ -42,6 +43,10 @@ class UserQuery(BaseModel):
 
 class ChatbotResponse(BaseModel):
     response: str
+
+@app.get("/")
+async def read_root():
+    return {"message": "Symptom Checker API is up and running!"}
 
 @app.post("/diagnose", response_model=ChatbotResponse, tags=["Chatbot"])
 async def diagnose(query: UserQuery):
@@ -54,11 +59,11 @@ async def diagnose(query: UserQuery):
 
     normalized_symptoms = normalize_symptoms(user_input)
     if not normalized_symptoms:
-        return ChatbotResponse(response="I'm sorry, I couldn't identify any specific symptoms from your message. Could you please describe them differently?")
+        return ChatbotResponse(response="I'm sorry, I couldn't identify any specific symptoms. Could you please describe them differently?")
 
     conditions = find_conditions(normalized_symptoms)
     if not conditions:
-        return ChatbotResponse(response="Based on your symptoms, I couldn't find a specific match in my knowledge base. It's always best to consult a doctor for an accurate diagnosis.")
+        return ChatbotResponse(response="Based on your symptoms, I couldn't find a specific match. It's always best to consult a doctor for an accurate diagnosis.")
 
     top_condition = conditions[0]
     detailed_info = get_medlineplus_info(top_condition['name'])
@@ -72,38 +77,35 @@ async def diagnose(query: UserQuery):
         
         doctor_info_string = ""
         if nearby_doctors:
-            doctor_info_string = "\n\nBased on your location, here are some highly-rated local specialists you could consult:\n"
+            doctor_info_string = "\n\nBased on your location, here are some highly-rated local specialists:\n"
             for doctor in nearby_doctors:
                 doctor_info_string += f"- {doctor['name']} (Rating: {doctor.get('rating', 'N/A')}/5.0)\n  Address: {doctor['address']}\n"
         
         system_message = "You are a helpful and empathetic AI medical assistant. Your role is to synthesize medical data into a clear, helpful, and safe response for the user."
         
         final_prompt = f"""
-        A user described their symptoms in the following query: "{user_input}"
-        
-        Based on a weighted analysis of their symptoms, the top possible conditions are: {conditions_summary}.
-        
-        Here is detailed information about the most likely condition, '{top_condition['name']}', from a trusted medical source:
+        A user described their symptoms: "{user_input}"
+        Possible conditions are: {conditions_summary}.
+        Detailed information about the most likely condition, '{top_condition['name']}':
         ---
         {detailed_info or "No detailed information was available."}
         ---
-        
-        Synthesize all of this information into a single, helpful, and conversational response.
+        Synthesize this into a **brief and concise** conversational response. Limit your response to **three to four sentences**, focusing on the most likely condition and a single recommendation.
         
         Follow these guidelines:
-        1. Start with an empathetic acknowledgment of the user's symptoms.
-        2. Present the possible conditions, focusing on the most likely one. Provide the detailed information you received.
-        3. If a list of doctors is available, include the following text EXACTLY: {doctor_info_string}
-        4. You MUST end your entire response with the following mandatory safety disclaimer, with no changes:
-           "Please remember that I am an AI assistant and not a medical professional. This information is for educational purposes only and is not a substitute for a professional diagnosis. For an accurate assessment, it is essential to consult a qualified healthcare provider. If your symptoms persist or worsen, please seek medical attention promptly."
+        1. Start with an empathetic acknowledgment.
+        2. Present the most likely condition and a brief summary of the information.
+        3. If doctors are available, include this text EXACTLY: {doctor_info_string}
+        4. You MUST end with this mandatory safety disclaimer:
+           "This information is for educational purposes only and not medical advice. Consult a qualified healthcare provider for a diagnosis."
         """
         
         final_response = get_llm_response(final_prompt, system_message)
         if not final_response:
-             raise ValueError("LLM failed to generate the final response.")
-             
+            raise ValueError("LLM failed to generate a response.")
+            
         return ChatbotResponse(response=final_response)
 
     except Exception as e:
         logger.error(f"Error during final response generation: {e}")
-        raise HTTPException(status_code=500, detail="An internal error occurred while generating the final response.")
+        raise HTTPException(status_code=500, detail="Internal error while generating response.")
