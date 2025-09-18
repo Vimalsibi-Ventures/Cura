@@ -77,12 +77,17 @@ async def diagnose(query: UserQuery):
         
         doctor_info_string = ""
         if nearby_doctors:
-            doctor_info_string = "\n\nBased on your location, here are some highly-rated local specialists:\n"
-            for doctor in nearby_doctors:
-                doctor_info_string += f"- {doctor['name']} (Rating: {doctor.get('rating', 'N/A')}/5.0)\n  Address: {doctor['address']}\n"
+            # CHANGED: Limit to a maximum of 2 doctors using list slicing
+            top_two_doctors = nearby_doctors[:2]
+            doctor_info_string = "\n\nHere are some highly-rated local specialists:\n"
+            for doctor in top_two_doctors:
+                # CHANGED: Use only a short version of the address
+                short_address = doctor['address'].split(',')[0].strip()
+                doctor_info_string += f"- {doctor['name']} ({short_address})\n"
         
         system_message = "You are a helpful and empathetic AI medical assistant. Your role is to synthesize medical data into a clear, helpful, and safe response for the user."
         
+        # CHANGED: The prompt is now slightly more detailed on the condition and recommendation.
         final_prompt = f"""
         A user described their symptoms: "{user_input}"
         Possible conditions are: {conditions_summary}.
@@ -90,11 +95,11 @@ async def diagnose(query: UserQuery):
         ---
         {detailed_info or "No detailed information was available."}
         ---
-        Synthesize this into a **brief and concise** conversational response. Limit your response to **three to four sentences**, focusing on the most likely condition and a single recommendation.
+        Synthesize this into a **brief, but detailed** conversational response. The output should be easy to read and conversational.
         
         Follow these guidelines:
         1. Start with an empathetic acknowledgment.
-        2. Present the most likely condition and a brief summary of the information.
+        2. Provide a short, informative paragraph on the most likely condition and a recommendation. This should be about 2-3 sentences.
         3. If doctors are available, include this text EXACTLY: {doctor_info_string}
         4. You MUST end with this mandatory safety disclaimer:
            "This information is for educational purposes only and not medical advice. Consult a qualified healthcare provider for a diagnosis."
